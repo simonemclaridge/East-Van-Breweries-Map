@@ -1,10 +1,9 @@
-# ArcGIS Starter App
+# East Van Breweries Map
 
-Here is a starter project for the ArcGIS Runtime SDK for Java with Gradle. 
-
-Will be used as a base to work through the ArcGIS Runtime SDK for Java tutorials. 
+This app displays a map of East Vancouver breweries using a [hosted ArcGIS feature layer](https://arcg.is/LTWXO). 
 
 The app launches a window displaying a map.
+
 
 ![screenshot](screenshot.png)
 
