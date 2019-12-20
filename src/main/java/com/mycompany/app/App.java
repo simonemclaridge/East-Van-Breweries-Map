@@ -17,12 +17,14 @@
 package com.mycompany.app;
 
 import com.esri.arcgisruntime.concurrent.ListenableFuture;
+import com.esri.arcgisruntime.data.ArcGISFeature;
 import com.esri.arcgisruntime.data.Feature;
 import com.esri.arcgisruntime.geometry.Point;
 import com.esri.arcgisruntime.layers.FeatureLayer;
 import com.esri.arcgisruntime.loadable.LoadStatus;
 import com.esri.arcgisruntime.mapping.ArcGISMap;
 import com.esri.arcgisruntime.mapping.Basemap;
+import com.esri.arcgisruntime.mapping.GeoElement;
 import com.esri.arcgisruntime.mapping.Viewpoint;
 import com.esri.arcgisruntime.mapping.view.Callout;
 import com.esri.arcgisruntime.mapping.view.IdentifyLayerResult;
@@ -38,10 +40,9 @@ import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
-import javafx.util.Duration;
 
 import java.util.List;
-
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 public class App extends Application {
@@ -63,6 +64,7 @@ public class App extends Application {
 
         //waits for the portal item to load and checks the load status
         portalItem.addDoneLoadingListener(() -> {
+
             if (portalItem.getLoadStatus() == LoadStatus.LOADED) {
                 addBreweriesLayer(portalItem);
             } else {
@@ -81,7 +83,6 @@ public class App extends Application {
         //creates a Light Gray Canvas base map for the map
         Basemap basemap = Basemap.createLightGrayCanvasVector();
         ArcGISMap map = new ArcGISMap(basemap);
-
 
         //wait for layer to load then add the layer to the map and set the viewpoint
         //to display all of the features of the layer
@@ -108,13 +109,13 @@ public class App extends Application {
             //selects features that have been clicked
             selectFeature(e, layer, screenPoint);
 
-            // creates a callout where the user clicked
-            createGeoCallOut(e, screenPoint);
+            // creates a callout of the brewery  name and x y coordinates where the user clicked
+            createGeoCallOut(e, layer, screenPoint);
+
         });
     }
 
     public void selectFeature(MouseEvent e, FeatureLayer layer, Point2D screenPoint) {
-
         // check for primary or secondary mouse click
         if (e.isStillSincePress() && e.getButton() == MouseButton.PRIMARY) {
             // clear previous results
@@ -149,50 +150,66 @@ public class App extends Application {
         }
     }
 
-
-    public void createGeoCallOut(MouseEvent e, Point2D screenPoint) {
-
-
+    public void createGeoCallOut(MouseEvent e, FeatureLayer layer, Point2D screenPoint) {
         // get the map view's callout
         Callout callout = mapView.getCallout();
-        if(callout.isVisible()){
+        if (callout.isVisible()) {
 
             callout.dismiss();
         }
-
         // check that the primary mouse button was clicked and user is not
         // panning
         if (e.isStillSincePress() && e.getButton() == MouseButton.PRIMARY) {
 
-            // was the main button pressed?
-            if (e.getButton() == MouseButton.PRIMARY) {
+            // create a map point from a point
+            Point clickPoint = mapView.screenToLocation(screenPoint);
 
-                // create a map point from a point
-                Point mapPoint = mapView.screenToLocation(screenPoint);
+            if (!callout.isVisible()) {
+                // get the clicked feature
+                ListenableFuture<IdentifyLayerResult> results = mapView.identifyLayerAsync(layer, screenPoint, 1, false);
+                results.addDoneListener(() -> {
+                    try {
+                        ArcGISFeature selected;
+                        IdentifyLayerResult layerOfFeatures = results.get();
+                        List<GeoElement> identified = layerOfFeatures.getElements();
 
-                // callout show and hide animation duration
-                final Duration DURATION = new Duration(0);
+                        if (identified.size() > 0) {
+                            GeoElement element = identified.get(0);
 
-                if (!callout.isVisible()) {
-                    // set the callout's details
-                    callout.setTitle("Location");
-                    callout.setDetail(String.format("x: %.2f, y: %.2f", mapPoint.getX(), mapPoint.getY()));
+                            // get selected feature
+                            if (element instanceof ArcGISFeature) {
+                                selected = (ArcGISFeature) element;
+                                layer.selectFeature(selected);
+                                selected.loadAsync();
 
-                    // show the callout where the user clicked
-                    callout.showCalloutAt(mapPoint, DURATION);
-                } else {
-                    // hide the callout
-                    callout.dismiss();
-                }
+                                selected.addDoneLoadingListener(() -> {
+                                    if (selected.getLoadStatus() == LoadStatus.LOADED) {
+
+                                        String name = String.valueOf(selected.getAttributes().get("Brewery_Name"));
+                                        // set the callout's details
+                                        callout.setDetail(String.format("x: %.2f, y: %.2f", clickPoint.getX(), clickPoint.getY()));
+                                        callout.setTitle(name);
+                                        callout.showCalloutAt(clickPoint);
+
+                                    } else {
+                                        Alert alert = new Alert(Alert.AlertType.ERROR, "Element Failed to Load!");
+                                        alert.show();
+                                    }
+                                });
+                            }
+                        }
+                    } catch (InterruptedException | ExecutionException ex) {
+                        System.out.println("Exception getting identify result" + ex.getCause().getMessage());
+                    }
+                });
+            } else {
+                // hide the callout
+                callout.dismiss();
             }
         }
     }
 
-
-    @Override
     public void start(Stage stage) {
-
-
         // set the title and size of the stage and show it
         stage.setTitle("East Van Breweries");
         stage.setWidth(800);
@@ -213,10 +230,7 @@ public class App extends Application {
 
     }
 
-    /**
-     * Stops and releases all resources used in application.
-     */
-    @Override
+    //Stops and releases all resources used in application.
     public void stop() {
 
         if (mapView != null) {
